@@ -1,0 +1,71 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FocusFlow — Arbiter Hacks</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:680px;margin:40px auto;padding:0 16px;line-height:1.5}
+button{padding:8px 14px;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+li.done span{text-decoration:line-through;color:#555}
+.bar{height:14px;background:#eee;border-radius:7px;overflow:hidden}
+.bar i{display:block;height:100%;background:#2a7}
+.timer{font-size:2em;font-variant-numeric:tabular-nums}
+small{color:#555}
+</style></head>
+<body>
+<h1>FocusFlow</h1>
+<p>Offline, honest study planner. No account, no cloud — your tasks and focus
+time are saved only in a local file on this machine, and every number below
+comes from real actions in this app. Nothing is seeded or invented.</p>
+
+<h2>Tasks</h2>
+<input id="t" placeholder="Task title" aria-label="Task title">
+<input id="m" type="number" value="25" min="1" aria-label="Minutes">
+<button onclick="add()">Add task</button>
+<ul id="list"></ul>
+<div class="bar"><i id="bar" style="width:0%"></i></div>
+<p id="summary">Loading…</p>
+
+<h2>Focus timer</h2>
+<p class="timer" id="clock">00:00</p>
+<p><small>Counts only while running. Pausing stops the clock; resetting clears
+the total. Focused time is saved when you pause or reset.</small></p>
+<button id="startBtn" onclick="focus('start')">Start</button>
+<button onclick="focus('pause')">Pause</button>
+<button onclick="focus('reset')">Reset</button>
+<p id="focusTotal"></p>
+
+<script>
+let focusState = {running:false, elapsed_seconds:0};
+let tick = null;
+function fmt(s){s=Math.floor(s);return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+function drawClock(){document.getElementById('clock').textContent=fmt(focusState.elapsed_seconds)}
+async function load(){
+  let r=await fetch('/api/summary');let s=await r.json();
+  document.getElementById('bar').style.width=s.progress_pct+'%';
+  document.getElementById('summary').textContent =
+    s.done+' of '+s.tasks+' tasks done · '+s.done_minutes+' of '+s.total_minutes+' minutes · '+s.progress_pct+'% progress' +
+    (s.next ? ' · Next: '+s.next : '');
+  document.getElementById('list').innerHTML = s.task_list.map(t =>
+    '<li class="'+(t.done?'done':'')+'"><span>'+t.title+' — '+t.minutes+' min</span> ' +
+    (t.done ? '✓ done' : '<button onclick="completeTask('+t.id+')">Complete</button>') + '</li>').join('') || '<li>No tasks yet — add your first one above.</li>';
+  document.getElementById('focusTotal').textContent = 'Focused so far: '+s.focused_minutes+' minutes (real, counted time only)';
+}
+async function add(){
+  let t=document.getElementById('t').value,m=document.getElementById('m').value;
+  let r=await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:t,minutes:m})});
+  if(!r.ok){alert('Could not add task — give it a title and minutes above 0.');return}
+  document.getElementById('t').value=''; load();
+}
+async function completeTask(id){
+  await fetch('/api/tasks/'+id+'/complete',{method:'POST'}); load();
+}
+async function focus(action){
+  let r=await fetch('/api/focus/'+action,{method:'POST'}); focusState=await r.json();
+  if(focusState.running && !tick){tick=setInterval(async()=>{
+    let fr=await fetch('/api/focus'); focusState=await fr.json(); drawClock();
+  },1000)}
+  if(!focusState.running && tick){clearInterval(tick); tick=null}
+  drawClock(); load();
+}
+load();
+</script>
+</body></html>
